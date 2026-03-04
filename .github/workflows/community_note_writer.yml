@@ -19,6 +19,14 @@ on:
         description: "Call evaluate_note before submit"
         required: false
         default: "true"
+      enable_url_check:
+        description: "Enable URL validity check before submit"
+        required: false
+        default: "false"
+      url_check_timeout:
+        description: "Timeout (seconds) for URL checks"
+        required: false
+        default: "5"
   # schedule:
   #   - cron: "0 * * * *"
 
@@ -56,6 +64,8 @@ jobs:
             --test-mode=${{ github.event.inputs.test_mode || 'true' }} \
             --submit-notes=${{ github.event.inputs.submit_notes || 'true' }} \
             --evaluate-before-submit=${{ github.event.inputs.evaluate_before_submit || 'false' }}
+            --enable-url-check=${{ github.event.inputs.enable_url_check || 'false' }} \
+            --url-check-timeout "${{ github.event.inputs.url_check_timeout || '5' }}"
 
       - name: Upload outputs
         if: always()

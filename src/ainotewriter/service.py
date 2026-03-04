@@ -10,6 +10,7 @@ from .ai_writer import AINoteGenerator
 from .config import AppConfig
 from .models import NoteProcessResult, ProposedNote, RunSummary
 from .x_client import XCommunityNotesClient
+import requests
 
 
 class CommunityNoteWriterService:
@@ -26,6 +27,8 @@ class CommunityNoteWriterService:
         submit_notes: bool,
         evaluate_before_submit: bool,
         min_claim_opinion_score: float,
+        enable_url_check: bool = False,
+        url_check_timeout_sec: int = 5,
         progress_callback: Callable[[str], None] | None = None,
     ) -> RunSummary:
         def _progress(message: str) -> None:
@@ -124,6 +127,24 @@ class CommunityNoteWriterService:
 
                 if submit_notes:
                     _progress("Submitting note...")
+
+                    if enable_url_check:
+                        urls = getattr(pwc.post, "suggested_source_links", []) or []
+                        if urls:
+                            ok, bad_urls = self._check_urls(urls, url_check_timeout_sec)
+                            if not ok:
+                                _progress(f"Skipped: invalid URLs: {', '.join(bad_urls)}")
+                                results.append(
+                                    NoteProcessResult(
+                                        post_id=pwc.post.post_id,
+                                        status="skipped",
+                                        reason=f"Invalid URLs: {', '.join(bad_urls)}",
+                                        generated_note=draft.note_text,
+                                        claim_opinion_score=score,
+                                    )
+                                )
+                                continue
+
                     note = ProposedNote(
                         post_id=pwc.post.post_id,
                         note_text=draft.note_text,
@@ -278,6 +299,22 @@ class CommunityNoteWriterService:
                 and harassment_high_rate >= 98.0
             ),
         }
+
+    def _check_urls(self, urls: list[str], timeout_sec: int) -> tuple[bool, list[str]]:
+        bad: list[str] = []
+        for url in urls:
+            if not isinstance(url, str) or not url:
+                bad.append(str(url))
+                continue
+            try:
+                resp = requests.head(url, allow_redirects=True, timeout=timeout_sec)
+                if resp.status_code >= 400:
+                    resp = requests.get(url, allow_redirects=True, timeout=timeout_sec)
+                if not (200 <= resp.status_code < 400):
+                    bad.append(f"{url} (status={resp.status_code})")
+            except Exception as ex:
+                bad.append(f"{url} ({ex.__class__.__name__})")
+        return (len(bad) == 0, bad)
 
 
 def save_summary(summary: RunSummary, output_dir: str = "outputs") -> Path:

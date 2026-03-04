@@ -25,6 +25,8 @@ class NoteWriterApp:
         self.submit_notes = tk.BooleanVar(value=self.config.default_submit_notes)
         self.evaluate = tk.BooleanVar(value=self.config.default_evaluate_before_submit)
         self.min_score = tk.DoubleVar(value=self.config.default_min_claim_opinion_score)
+        self.enable_url_check = tk.BooleanVar(value=self.config.default_enable_url_check)
+        self.url_check_timeout = tk.IntVar(value=self.config.url_check_timeout_sec)
 
         self.last_output_path: str | None = None
 
@@ -40,6 +42,10 @@ class NoteWriterApp:
         ttk.Checkbutton(ctrl, text="Test mode", variable=self.test_mode).grid(row=1, column=0, sticky=tk.W)
         ttk.Checkbutton(ctrl, text="Submit notes", variable=self.submit_notes).grid(row=1, column=1, sticky=tk.W)
         ttk.Checkbutton(ctrl, text="Evaluate before submit", variable=self.evaluate).grid(row=1, column=2, sticky=tk.W)
+
+        ttk.Checkbutton(ctrl, text="Enable URL check", variable=self.enable_url_check).grid(row=2, column=0, sticky=tk.W)
+        ttk.Label(ctrl, text="URL check timeout (s)").grid(row=2, column=1, sticky=tk.W)
+        ttk.Entry(ctrl, textvariable=self.url_check_timeout, width=8).grid(row=2, column=2, padx=6)
 
         ttk.Label(ctrl, text="Min claim/opinion score").grid(row=1, column=3, sticky=tk.W)
         ttk.Entry(ctrl, textvariable=self.min_score, width=8).grid(row=1, column=4, padx=6)
@@ -67,6 +73,8 @@ class NoteWriterApp:
                     submit_notes=self.submit_notes.get(),
                     evaluate_before_submit=self.evaluate.get(),
                     min_claim_opinion_score=self.min_score.get(),
+                    enable_url_check=self.enable_url_check.get(),
+                    url_check_timeout_sec=self.url_check_timeout.get(),
                     progress_callback=self._append,
                 )
                 path = save_summary(summary)

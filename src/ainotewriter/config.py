@@ -37,6 +37,8 @@ class AppConfig:
     default_submit_notes: bool = False
     default_evaluate_before_submit: bool = True
     default_min_claim_opinion_score: float = 0.55
+    default_enable_url_check: bool = False
+    url_check_timeout_sec: int = 5
 
 
     @classmethod
@@ -66,6 +68,8 @@ class AppConfig:
             default_min_claim_opinion_score=float(
                 os.getenv("DEFAULT_MIN_CLAIM_OPINION_SCORE", "0.55")
             ),
+            default_enable_url_check=_as_bool(os.getenv("DEFAULT_ENABLE_URL_CHECK"), False),
+            url_check_timeout_sec=int(os.getenv("URL_CHECK_TIMEOUT_SEC", "5")),
         )
 
     def validate_x_auth(self) -> None:

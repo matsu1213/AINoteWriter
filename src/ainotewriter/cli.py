@@ -31,6 +31,8 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
     )
     run_p.add_argument("--min-claim-opinion-score", type=float, default=None)
+    run_p.add_argument("--enable-url-check", type=_parse_bool, default=None)
+    run_p.add_argument("--url-check-timeout", type=int, default=None)
 
     notes_p = sub.add_parser("notes", help="Fetch notes written by this account")
     notes_p.add_argument("--max-results", type=int, default=20)
@@ -59,6 +61,16 @@ def main() -> None:
                 args.min_claim_opinion_score
                 if args.min_claim_opinion_score is not None
                 else config.default_min_claim_opinion_score
+            ),
+            enable_url_check=(
+                args.enable_url_check
+                if args.enable_url_check is not None
+                else config.default_enable_url_check
+            ),
+            url_check_timeout_sec=(
+                args.url_check_timeout
+                if args.url_check_timeout is not None
+                else config.url_check_timeout_sec
             ),
         )
         path = save_summary(summary)

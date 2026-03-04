@@ -32,8 +32,9 @@ X の Community Notes AI Writer を、以下 2 つの実行経路に対応させ
   - `X_API_KEY_SECRET`
   - `X_ACCESS_TOKEN`
   - `X_ACCESS_TOKEN_SECRET`
-- AI API キー（任意。下書きを生成する場合）
-  - `AI_API_KEY`
+- AI 実行環境（下書きを生成する場合）
+  - xAI API を使う場合: `AI_API_KEY`
+  - Claude Code プランを使う場合: VPS 上で Claude Code/Agent SDK が利用できる状態
 
 ---
 
@@ -48,6 +49,41 @@ pip install -e .
 ```
 
 `.env.example` を `.env` にコピーして値を設定してください。
+
+---
+
+## AI プロバイダー設定（xAI / Claude Agent SDK）
+
+### xAI API（従来どおり）
+
+```dotenv
+AI_PROVIDER=xai
+AI_API_KEY=...
+AI_BASE_URL=https://api.x.ai/v1
+AI_MODEL=grok-3-latest
+```
+
+### Claude Agent SDK（Claude Code プラン）
+
+```dotenv
+AI_PROVIDER=claude_agent
+AI_MODEL=claude-sonnet-4-5
+AI_TIMEOUT_SEC=120
+CLAUDE_CLI_PATH=claude
+CLAUDE_MAX_TURNS=4
+CLAUDE_USE_CLI_FALLBACK=true
+```
+
+- まず Python の `claude-code-sdk` を使って実行します。
+- SDK が使えない場合、`CLAUDE_USE_CLI_FALLBACK=true` なら `claude --print` に自動フォールバックします。
+- Claude 経路では `AI_API_KEY` は不要です（Claude Code 側の認証状態を利用）。
+
+### VPS での Claude 利用準備
+
+1. VPS で Claude Code の認証を完了
+2. `claude` コマンドが実行できることを確認
+3. 本プロジェクトの `.env` を `AI_PROVIDER=claude_agent` に設定
+4. `ai-note-writer run ...` で通常どおり実行
 
 ---
 
@@ -102,6 +138,9 @@ GitHub リポジトリの `Settings > Secrets and variables > Actions` で以下
   - `AI_PROVIDER`（例: `xai`）
   - `AI_BASE_URL`（例: `https://api.x.ai/v1`）
   - `AI_MODEL`（例: `grok-3-latest`）
+  - `CLAUDE_CLI_PATH`（例: `claude`）
+  - `CLAUDE_MAX_TURNS`（例: `4`）
+  - `CLAUDE_USE_CLI_FALLBACK`（例: `true`）
 
 Actions タブから `Automated Community Note Writer` を手動実行できます。
 成果物は artifact (`writer-outputs`) として保存されます。

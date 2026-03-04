@@ -28,6 +28,9 @@ class AppConfig:
     ai_base_url: str = "https://api.x.ai/v1"
     ai_model: str = "grok-3-latest"
     ai_timeout_sec: int = 60
+    claude_cli_path: str = "claude"
+    claude_max_turns: int = 4
+    claude_use_cli_fallback: bool = True
 
     default_num_posts: int = 5
     default_test_mode: bool = True
@@ -49,6 +52,11 @@ class AppConfig:
             ai_base_url=os.getenv("AI_BASE_URL", "https://api.x.ai/v1"),
             ai_model=os.getenv("AI_MODEL", "grok-3-latest"),
             ai_timeout_sec=int(os.getenv("AI_TIMEOUT_SEC", "60")),
+            claude_cli_path=os.getenv("CLAUDE_CLI_PATH", "claude"),
+            claude_max_turns=int(os.getenv("CLAUDE_MAX_TURNS", "4")),
+            claude_use_cli_fallback=_as_bool(
+                os.getenv("CLAUDE_USE_CLI_FALLBACK"), True
+            ),
             default_num_posts=int(os.getenv("DEFAULT_NUM_POSTS", "5")),
             default_test_mode=_as_bool(os.getenv("DEFAULT_TEST_MODE"), True),
             default_submit_notes=_as_bool(os.getenv("DEFAULT_SUBMIT_NOTES"), False),

@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import asyncio
+import importlib
+import inspect
 import re
+import subprocess
 from dataclasses import dataclass
 from typing import Any
 
@@ -63,6 +67,121 @@ class AINoteGenerator:
             raise RuntimeError(f"AI API request failed ({resp.status_code}): {resp.text}")
         body = resp.json()
         return body["choices"][0]["message"]["content"].strip()
+
+    @staticmethod
+    def _extract_text_recursive(value: Any) -> list[str]:
+        texts: list[str] = []
+        if isinstance(value, str):
+            stripped = value.strip()
+            if stripped:
+                texts.append(stripped)
+            return texts
+
+        if isinstance(value, dict):
+            for key in ("text", "content", "message", "result", "value", "output"):
+                if key in value:
+                    texts.extend(AINoteGenerator._extract_text_recursive(value[key]))
+            return texts
+
+        if isinstance(value, list):
+            for item in value:
+                texts.extend(AINoteGenerator._extract_text_recursive(item))
+            return texts
+
+        return texts
+
+    @staticmethod
+    def _build_kwargs_for_signature(func: Any, prompt: str, system_prompt: str) -> dict[str, Any]:
+        kwargs: dict[str, Any] = {}
+        try:
+            sig = inspect.signature(func)
+        except (TypeError, ValueError):
+            return kwargs
+
+        params = sig.parameters
+        if "prompt" in params:
+            kwargs["prompt"] = prompt
+        elif "query" in params:
+            kwargs["query"] = prompt
+        elif "input" in params:
+            kwargs["input"] = prompt
+
+        if "system_prompt" in params:
+            kwargs["system_prompt"] = system_prompt
+        elif "system" in params:
+            kwargs["system"] = system_prompt
+
+        return kwargs
+
+    async def _run_claude_sdk_query_async(self, prompt: str, system_prompt: str) -> str:
+        sdk = importlib.import_module("claude_code_sdk")
+        query = getattr(sdk, "query", None)
+        if query is None:
+            raise RuntimeError("claude_code_sdk.query is not available")
+
+        kwargs = self._build_kwargs_for_signature(query, prompt, system_prompt)
+
+        options_cls = getattr(sdk, "ClaudeCodeOptions", None)
+        if options_cls is not None:
+            try:
+                option_sig = inspect.signature(options_cls)
+                option_kwargs: dict[str, Any] = {}
+                if "max_turns" in option_sig.parameters:
+                    option_kwargs["max_turns"] = self.config.claude_max_turns
+                if "system_prompt" in option_sig.parameters:
+                    option_kwargs["system_prompt"] = system_prompt
+                if option_kwargs and "options" in inspect.signature(query).parameters:
+                    kwargs["options"] = options_cls(**option_kwargs)
+            except (TypeError, ValueError):
+                pass
+
+        result = query(**kwargs) if kwargs else query(prompt)
+
+        if inspect.isawaitable(result):
+            result = await result
+
+        chunks: list[str] = []
+        if hasattr(result, "__aiter__"):
+            async for event in result:
+                chunks.extend(self._extract_text_recursive(event))
+        else:
+            chunks.extend(self._extract_text_recursive(result))
+
+        merged = "\n".join(chunk for chunk in chunks if chunk).strip()
+        if not merged:
+            raise RuntimeError("Claude Agent SDK returned empty response")
+        return merged
+
+    def _run_claude_cli_prompt(self, prompt: str, system_prompt: str) -> str:
+        full_prompt = f"{system_prompt}\n\n{prompt}".strip()
+        proc = subprocess.run(
+            [self.config.claude_cli_path, "--print", full_prompt],
+            capture_output=True,
+            text=True,
+            timeout=self.config.ai_timeout_sec,
+            check=False,
+        )
+        if proc.returncode != 0:
+            stderr = proc.stderr.strip() if proc.stderr else ""
+            raise RuntimeError(
+                f"Claude CLI request failed (exit={proc.returncode}): {stderr or 'unknown error'}"
+            )
+        text = (proc.stdout or "").strip()
+        if not text:
+            raise RuntimeError("Claude CLI returned empty response")
+        return text
+
+    def _claude_completion(self, prompt: str, system_prompt: str) -> str:
+        sdk_error: Exception | None = None
+        try:
+            return asyncio.run(self._run_claude_sdk_query_async(prompt, system_prompt))
+        except Exception as ex:
+            sdk_error = ex
+
+        if self.config.claude_use_cli_fallback:
+            return self._run_claude_cli_prompt(prompt, system_prompt)
+
+        raise RuntimeError(f"Claude Agent SDK request failed: {sdk_error}")
 
     def _responses_completion(self, payload: dict[str, Any]) -> str:
         if not self.config.ai_api_key:
@@ -142,9 +261,19 @@ class AINoteGenerator:
 
     def _run_live_search(self, post_with_context_description: str) -> str:
         user_prompt = self._get_prompt_for_live_search(post_with_context_description)
+        provider = self.config.ai_provider.lower()
+
+        if provider in {"claude", "claude_agent", "claude-agent"}:
+            try:
+                return self._claude_completion(
+                    prompt=user_prompt,
+                    system_prompt="あなたは慎重な調査アシスタントです。公開情報のみを使い、根拠URLを明示してください。",
+                )
+            except Exception:
+                return ""
 
         # xAI: migrate from deprecated `search_parameters` to Agent Tools style.
-        if self.config.ai_provider.lower() == "xai":
+        if provider == "xai":
             chat_payload: dict[str, Any] = {
                 "model": self.config.ai_model,
                 "temperature": 0.6,
@@ -204,26 +333,35 @@ class AINoteGenerator:
             return ""
 
     def generate_note(self, post_with_context: PostWithContext) -> AINoteDraft | None:
-        if self.config.ai_provider.lower() in {"none", "off", "disabled"}:
+        provider = self.config.ai_provider.lower()
+        if provider in {"none", "off", "disabled"}:
             return None
 
         description = self._build_post_description(post_with_context)
         search_results = self._run_live_search(description)
-        payload: dict[str, Any] = {
-            "model": self.config.ai_model,
-            "temperature": 0.3,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": "あなたはCommunity Notes向けの事実確認ライターです。",
-                },
-                {
-                    "role": "user",
-                    "content": self._get_prompt_for_note_writing(description, search_results),
-                },
-            ],
-        }
-        raw = self._chat_completion(payload)
+        note_prompt = self._get_prompt_for_note_writing(description, search_results)
+
+        if provider in {"claude", "claude_agent", "claude-agent"}:
+            raw = self._claude_completion(
+                prompt=note_prompt,
+                system_prompt="あなたはCommunity Notes向けの事実確認ライターです。推測はせず、検証可能な事実のみを使ってください。",
+            )
+        else:
+            payload: dict[str, Any] = {
+                "model": self.config.ai_model,
+                "temperature": 0.3,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": "あなたはCommunity Notes向けの事実確認ライターです。",
+                    },
+                    {
+                        "role": "user",
+                        "content": note_prompt,
+                    },
+                ],
+            }
+            raw = self._chat_completion(payload)
         upper = raw.upper()
         if NO_NOTE_NEEDED in upper or NOT_ENOUGH_EVIDENCE in upper:
             return None

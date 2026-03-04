@@ -63,7 +63,7 @@ jobs:
             --num-posts "${{ github.event.inputs.num_posts || '5' }}" \
             --test-mode=${{ github.event.inputs.test_mode || 'true' }} \
             --submit-notes=${{ github.event.inputs.submit_notes || 'true' }} \
-            --evaluate-before-submit=${{ github.event.inputs.evaluate_before_submit || 'false' }}
+            --evaluate-before-submit=${{ github.event.inputs.evaluate_before_submit || 'false' }} \
             --enable-url-check=${{ github.event.inputs.enable_url_check || 'false' }} \
             --url-check-timeout "${{ github.event.inputs.url_check_timeout || '5' }}"
 

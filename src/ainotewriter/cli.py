@@ -20,13 +20,11 @@ def _parse_bool(value: str) -> bool:
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="X Community Notes AI Writer")
-    # Global options (can be placed before or after the subcommand)
-    parser.add_argument("--test-mode", type=_parse_bool, default=None)
-
     sub = parser.add_subparsers(dest="command", required=True)
 
     run_p = sub.add_parser("run", help="Fetch eligible posts and draft/submit notes")
     run_p.add_argument("--num-posts", type=int, default=None)
+    run_p.add_argument("--test-mode", type=_parse_bool, default=None)
     run_p.add_argument("--submit-notes", type=_parse_bool, default=None)
     run_p.add_argument(
         "--evaluate-before-submit",

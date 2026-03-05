@@ -38,6 +38,7 @@ def _build_parser() -> argparse.ArgumentParser:
     run_p.add_argument("--url-check-timeout", type=int, default=None)
 
     notes_p = sub.add_parser("notes", help="Fetch notes written by this account")
+    notes_p.add_argument("--test-mode", type=_parse_bool, default=None)
     notes_p.add_argument("--max-results", type=int, default=20)
 
     return parser

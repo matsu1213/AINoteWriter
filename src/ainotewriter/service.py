@@ -11,6 +11,7 @@ from .config import AppConfig
 from .models import NoteProcessResult, ProposedNote, RunSummary
 from .x_client import XCommunityNotesClient
 import requests
+import logging
 
 
 class CommunityNoteWriterService:
@@ -35,7 +36,7 @@ class CommunityNoteWriterService:
             if progress_callback is not None:
                 progress_callback(message)
             else:
-                print(message)
+                logging.getLogger(__name__).info(message)
 
         def _extract_post_id_from_written_note(item: dict[str, Any]) -> str | None:
             info = item.get("info") if isinstance(item, dict) else None

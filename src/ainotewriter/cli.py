@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import asdict
 import json
+import logging
 
 from .config import AppConfig
 from .service import CommunityNoteWriterService, save_recent_notes, save_summary
@@ -45,6 +46,8 @@ def main() -> None:
     args = parser.parse_args()
 
     config = AppConfig.from_env()
+    # Ensure CLI shows progress logs (goes to stderr) at INFO level
+    logging.basicConfig(level=logging.INFO)
     service = CommunityNoteWriterService(config)
 
     if args.command == "run":

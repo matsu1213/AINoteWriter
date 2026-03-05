@@ -3,7 +3,7 @@ name: Get Notes Written
 on:
   workflow_dispatch:
     inputs:
-      num_posts:
+      max_results:
         description: "Number of eligible notes"
         required: false
         default: "10"
@@ -44,7 +44,7 @@ jobs:
           AI_MODEL: ${{ vars.AI_MODEL }}
         run: |
           ai-note-writer notes \
-            --num-posts "${{ github.event.inputs.num_posts || '10' }}" \
+            --max-results "${{ github.event.inputs.max_results || '10' }}" \
             --test-mode=${{ github.event.inputs.test_mode || 'true' }} \
 
       - name: Upload outputs

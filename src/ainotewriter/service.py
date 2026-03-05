@@ -14,6 +14,9 @@ import requests
 import html
 import re
 import logging
+ 
+# Module logger
+logger = logging.getLogger(__name__)
 
 
 class CommunityNoteWriterService:

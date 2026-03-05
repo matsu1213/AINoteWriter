@@ -4,13 +4,15 @@ import json
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, List
 
 from .ai_writer import AINoteGenerator
 from .config import AppConfig
 from .models import NoteProcessResult, ProposedNote, RunSummary
 from .x_client import XCommunityNotesClient
 import requests
+import html
+import re
 import logging
 
 
@@ -130,21 +132,38 @@ class CommunityNoteWriterService:
                     _progress("Submitting note...")
 
                     if enable_url_check:
-                        urls = getattr(pwc.post, "suggested_source_links", []) or []
-                        if urls:
-                            ok, bad_urls = self._check_urls(urls, url_check_timeout_sec)
-                            if not ok:
-                                _progress(f"Skipped: invalid URLs: {', '.join(bad_urls)}")
-                                results.append(
-                                    NoteProcessResult(
-                                        post_id=pwc.post.post_id,
-                                        status="skipped",
-                                        reason=f"Invalid URLs: {', '.join(bad_urls)}",
-                                        generated_note=draft.note_text,
-                                        claim_opinion_score=score,
-                                    )
+                        # Prefer parsing URLs from the generated note text; fall back to suggested_source_links.
+                        parsed_variants = _extract_urls(unescape(draft.note_text))
+                        ok = True
+                        bad_urls: list[str] = []
+                        if parsed_variants:
+                            def _check_fn(url: str) -> bool:
+                                try:
+                                    resp = requests.head(url, allow_redirects=True, timeout=url_check_timeout_sec)
+                                    if resp.status_code >= 400:
+                                        resp = requests.get(url, allow_redirects=True, timeout=url_check_timeout_sec)
+                                    return 200 <= resp.status_code < 400
+                                except Exception:
+                                    return False
+
+                            ok, bad_urls = check_all_urls_for_note(draft.note_text, _check_fn)
+                        else:
+                            urls = getattr(pwc.post, "suggested_source_links", []) or []
+                            if urls:
+                                ok, bad_urls = self._check_urls(urls, url_check_timeout_sec)
+
+                        if not ok:
+                            _progress(f"Skipped: invalid URLs: {', '.join(bad_urls)}")
+                            results.append(
+                                NoteProcessResult(
+                                    post_id=pwc.post.post_id,
+                                    status="skipped",
+                                    reason=f"Invalid URLs: {', '.join(bad_urls)}",
+                                    generated_note=draft.note_text,
+                                    claim_opinion_score=score,
                                 )
-                                continue
+                            )
+                            continue
 
                     note = ProposedNote(
                         post_id=pwc.post.post_id,
@@ -316,6 +335,82 @@ class CommunityNoteWriterService:
             except Exception as ex:
                 bad.append(f"{url} ({ex.__class__.__name__})")
         return (len(bad) == 0, bad)
+
+
+def check_all_urls_for_note(note_text: str, check_url_fn: Callable[[str], bool]) -> tuple[bool, list[str]]:
+    """
+    Copyed from twitter/communitynotes
+
+    Check all URLs in the note text to see if they are valid.
+    For each URL, there are multiple variants (e.g. with and without trailing punctuation).
+    If at least one variant of each URL is valid, return (True, []).
+    If there is any URL with no valid variant, return (False, [bad_variants...]).
+    """
+    note_text_unescaped = unescape(note_text)
+    urls = _extract_urls(note_text_unescaped)
+
+    if len(urls) == 0:
+        logger.info(f"No URLs found in note text: {note_text_unescaped}")
+        return (False, [])
+
+    bad: list[str] = []
+    for url_variant_list in urls:
+        at_least_one_good_url_variant = False
+        for url_variant in url_variant_list:
+            if check_url_fn(url_variant):
+                at_least_one_good_url_variant = True
+                break
+        if not at_least_one_good_url_variant:
+            bad.append(" / ".join(url_variant_list))
+    if bad:
+        logger.info(
+            f"No valid URL found for any variant of {bad} in note text: {note_text_unescaped}"
+        )
+        return (False, bad)
+    logger.info(f"All URLs in note text are valid: {note_text_unescaped}")
+    return (True, [])
+
+
+def _extract_urls(text: str) -> List[List[str]]:
+    """
+    Copyed from twitter/communitynotes
+
+    Return every URL-like substring from *text*.
+    Return a List of Lists: each inner List contains multiple possible variants
+    of an individual URL.
+    """
+    pattern = re.compile(
+        r"""
+            (?:
+                https?://               # optional scheme
+            )?
+            (?:www\.)?                  # optional www
+            [\w\-._~%]+                 # subdomain or domain name chars
+            \.[a-zA-Z]{2,}              # dot + top level domain (≥2 letters)
+            (?:/[^\s]*)?                # optional query/fragment
+            """,
+        re.VERBOSE,
+    )
+
+    raw_matches = pattern.findall(text)
+
+    # Strip common trailing punctuation that often follows URLs in note text
+    # Return both variants (with and without trailing punctuation) for each URL.
+    strip_trailing = ".,;:!?)]}\"'"
+    results = []
+    for match in raw_matches:
+        # Create a list of variants for each match
+        variants = [match]
+        stripped_variant = match.rstrip(strip_trailing)
+        if stripped_variant != match:
+            variants.append(stripped_variant)
+        results.append(variants)
+    return results
+
+
+def unescape(text: str) -> str:
+    """Remove layers of HTML escaping so the text matches natural language."""
+    return html.unescape(html.unescape(text)) if isinstance(text, str) else text
 
 
 def save_summary(summary: RunSummary, output_dir: str = "outputs") -> Path:

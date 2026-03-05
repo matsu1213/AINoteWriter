@@ -44,8 +44,8 @@ jobs:
           AI_MODEL: ${{ vars.AI_MODEL }}
         run: |
           ai-note-writer notes \
-            --max-results "${{ github.event.inputs.max_results || '10' }}" \
             --test-mode=${{ github.event.inputs.test_mode || 'true' }} \
+            --max-results "${{ github.event.inputs.max_results || '10' }}"
 
       - name: Upload outputs
         if: always()
